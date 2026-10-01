@@ -24,8 +24,9 @@ making the event part of the database transaction and letting a separate relay p
 
 - **Atomic writes**: a tiny zero-dependency client (`lego-client`) inserts events using *your*
   JDBC connection. Or use a plain `INSERT`; the partition is computed by the database.
-- **Per-key ordering**: events with the same key are delivered in insertion order, even across
-  failures. A failing event blocks only its own key; other keys keep flowing.
+- **Per-key ordering**: events with the same destination and key are delivered in insertion
+  order, even across failures. A failing event blocks only its own key on its own destination;
+  everything else keeps flowing.
 - **Horizontal scaling with no leader**: 64 partitions are leased by relay instances; each takes
   its fair share. Add or remove instances at any time.
 - **Fencing**: every write is guarded by the lease *generation*, so a paused or partitioned
@@ -88,12 +89,13 @@ lego:
       type: KAFKA
       kafka:
         topic: orders.v1
-        send-timeout: 10s
+        send-timeout: 10s    # keep >= producer max.block.ms + delivery.timeout.ms
     billing-webhook:
       type: HTTP
       http:
         url: https://billing.example.com/hooks
         timeout: 5s
+        connect-timeout: 5s
         headers:
           Authorization: Bearer ${BILLING_TOKEN}
   retry:
@@ -104,9 +106,13 @@ lego:
     batch-size: 100
     worker-threads: 8
     interval: 200ms
+    max-consecutive-batches: 10  # fairness: batches per partition before yielding
   leasing:
     lease-duration: 30s    # how long a crashed instance's partitions stay blocked
     renew-interval: 5s
+  shutdown-timeout: 30s    # keep > your slowest sink timeout
+  admin:
+    write-enabled: false   # enable replay/discard endpoints
 ```
 
 | HTTP response | Result |
@@ -121,17 +127,19 @@ lego:
 |---|---|
 | `GET /admin/stats` | pending / dead counts and oldest pending event per destination |
 | `GET /admin/dead-events?destination=&after=&limit=` | browse dead letters (keyset pagination) |
-| `POST /admin/dead-events/replay` `{"eventIds":[...]}` | re-queue with a fresh retry budget |
-| `POST /admin/dead-events/discard` `{"eventIds":[...]}` | delete permanently |
-| `GET /actuator/prometheus` | metrics |
+| `POST /admin/dead-events/replay` `{"eventIds":[...]}` | re-queue with a fresh retry budget * |
+| `POST /admin/dead-events/discard` `{"eventIds":[...]}` | delete permanently * |
+| `GET :8081/actuator/prometheus` | metrics (separate management port, `MANAGEMENT_PORT`) |
 
-The admin API has no built-in authentication; keep it on an internal network.
+\* Data-changing endpoints are **off by default**; enable them with
+`lego.admin.write-enabled: true`. There is no built-in authentication, so only enable them behind
+your gateway or on an internal network.
 
 ## Guarantees
 
 - **At least once.** A crash between publish and delete causes a redelivery. Consumers should
   de-duplicate on `lego-event-id` (Kafka header) / `Lego-Event-Id` (HTTP header).
-- **Ordered per key**, within one destination's key space. There is no ordering across keys.
+- **Ordered per (destination, key).** There is no ordering across keys or destinations.
 - **Latency** is roughly the poll interval (200 ms by default) when the system is healthy. After
   a crash, that instance's partitions resume once its lease expires.
 

@@ -1,5 +1,7 @@
 # Local playground: PostgreSQL, Kafka (KRaft, no ZooKeeper) and two relay instances
 # sharing the work.   docker compose up --build
+# Relay ports: app/admin 8081 + 8082, actuator 9081 + 9082. Replay/discard are
+# enabled here for convenience; never expose these ports publicly.
 services:
   postgres:
     image: postgres:16
@@ -36,8 +38,9 @@ services:
       LEGO_KAFKA_BOOTSTRAP: kafka:9092
       LEGO_DESTINATIONS_ORDERS_TYPE: KAFKA
       LEGO_DESTINATIONS_ORDERS_KAFKA_TOPIC: orders.v1
-    ports: ["8081:8080"]
+      LEGO_ADMIN_WRITE_ENABLED: "true"
+    ports: ["8081:8080", "9081:8081"]
 
   relay-2:
     <<: *relay
-    ports: ["8082:8080"]
+    ports: ["8082:8080", "9082:8081"]

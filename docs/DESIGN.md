@@ -41,26 +41,32 @@ WITH fence AS (SELECT 1 FROM lego_partition
                   FOR SHARE)
 ```
 
-and only applies `WHERE ... AND EXISTS (SELECT 1 FROM fence)`. The `FOR SHARE` lock makes a
-concurrent claim (which needs `FOR UPDATE`) wait until the write commits. A stale instance's
-writes therefore become no-ops and the event is simply redelivered by the new owner, which is
-fine under at-least-once.
+and only applies `WHERE ... AND EXISTS (SELECT 1 FROM fence)`. Claims use
+`FOR UPDATE SKIP LOCKED`, so while a write holds the `FOR SHARE` lock a competing claim simply
+**skips** that partition and picks it up on its next tick, by which time the write has committed.
+If the lease was already taken over, the fence finds no row, so a stale instance's writes are
+no-ops and the event is redelivered by the new owner, which is fine under at-least-once.
 
 ## Ordering
 
+Ordering is per **(destination, key)**. Destinations are independent downstream systems, so an
+outage of one webhook must not stall the Kafka events of the same key.
+
 Within a partition, a single worker thread processes events in `id` order (the engine never runs
 the same partition twice concurrently). The poll query skips any event that has an **earlier
-pending event with the same key still in backoff**:
+pending event with the same destination and key still in backoff**:
 
 ```sql
 AND NOT EXISTS (SELECT 1 FROM lego_outbox earlier
-                 WHERE earlier.event_key = o.event_key AND earlier.status = 'PENDING'
-                   AND earlier.id < o.id AND earlier.next_attempt_at > now())
+                 WHERE earlier.destination = o.destination AND earlier.event_key = o.event_key
+                   AND earlier.status = 'PENDING' AND earlier.id < o.id
+                   AND earlier.next_attempt_at > now())
 ```
 
-Inside a batch, once an event is rescheduled its key is added to a `blockedKeys` set. So a failing
-event holds back only its own key, across batches and across instances, until it succeeds or
-goes `DEAD`. Dead-lettering unblocks the key: a poison message doesn't stall a key forever.
+Inside a batch, once an event is rescheduled its (destination, key) pair is added to a
+`blockedKeys` set. So a failing event holds back only its own key on its own destination, across
+batches and across instances, until it succeeds or goes `DEAD`. Dead-lettering unblocks the key:
+a poison message doesn't stall a key forever.
 
 Note this also means an event scheduled with `deliverAfter` in the future holds back later
 events of the same key, which keeps the "insertion order" promise.
@@ -81,6 +87,9 @@ every poll interval:
 
 Sinks block until the downstream ack, with a bounded timeout. Kafka uses `acks=all` plus the
 idempotent producer, and the record key equals the event key, so Kafka preserves per-key order too.
+The producer's own blocking phases (`max.block.ms`, `delivery.timeout.ms`) are capped below the
+destination's `send-timeout`, because `send()` can block *before* it returns a future, and a late
+broker write after a local timeout would otherwise slip past the retry.
 
 ## Trade-offs and non-goals
 
@@ -92,4 +101,5 @@ idempotent producer, and the record key equals the event key, so Kafka preserves
   millions. That is the right trade for "never lose an event".
 - **Payload size**: payloads are `text` in the row. Store large blobs elsewhere and put a
   reference in the event.
-- **No built-in auth** on the admin API.
+- **Admin auth**: none built in. Read endpoints are always on; replay/discard are off unless
+  `lego.admin.write-enabled=true`. Actuator runs on a separate management port.

@@ -17,3 +17,10 @@ jobs:
           cache: maven
       # Tests use an embedded PostgreSQL binary, so no Docker service is needed.
       - run: mvn -B verify
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Keeps the Dockerfile used by the README quick start from rotting.
+      - run: docker build -t lego-relay:ci .
