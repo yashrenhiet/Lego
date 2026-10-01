@@ -1,0 +1,43 @@
+# Local playground: PostgreSQL, Kafka (KRaft, no ZooKeeper) and two relay instances
+# sharing the work.   docker compose up --build
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lego
+      POSTGRES_USER: lego
+      POSTGRES_PASSWORD: lego
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lego -d lego"]
+      interval: 2s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.8.0
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  relay-1: &relay
+    build: .
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_started }
+    environment: &relay-env
+      LEGO_DB_URL: jdbc:postgresql://postgres:5432/lego
+      LEGO_KAFKA_BOOTSTRAP: kafka:9092
+      LEGO_DESTINATIONS_ORDERS_TYPE: KAFKA
+      LEGO_DESTINATIONS_ORDERS_KAFKA_TOPIC: orders.v1
+    ports: ["8081:8080"]
+
+  relay-2:
+    <<: *relay
+    ports: ["8082:8080"]
