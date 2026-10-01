@@ -1,0 +1,44 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For security issues, please use
+        [private vulnerability reporting](https://github.com/yashrenhiet/Lego/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps, SQL or config that triggers the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Relay logs around the problem. Redact secrets.
+      render: text
+  - type: input
+    id: lego-version
+    attributes:
+      label: Lego version / commit
+    validations:
+      required: true
+  - type: input
+    id: postgres-version
+    attributes:
+      label: PostgreSQL version
+  - type: dropdown
+    id: sink
+    attributes:
+      label: Destination type
+      options: [KAFKA, HTTP, LOG, Not sink-related]
