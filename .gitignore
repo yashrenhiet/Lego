@@ -1,0 +1,27 @@
+# Build
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+
+# Secrets / local config
+.env
+*.env
+application-local.yml
+application-local.properties
+
+# Node / Python (should someone add tooling later)
+node_modules/
+venv/
+.venv/
