@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,6 +44,7 @@ class RelayEndToEndTest {
 
   @Autowired DataSource dataSource;
   @Autowired TestRestTemplate rest;
+  @LocalManagementPort int managementPort;
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
@@ -82,7 +84,8 @@ class RelayEndToEndTest {
             IntStream.rangeClosed(1, 20).mapToObj(i -> "{\"seq\":" + i + "}").toList());
     // Delivered events are deleted, so the outbox is empty again.
     assertThat(rest.getForObject("/admin/stats", String.class)).isEqualTo("[]");
-    assertThat(rest.getForObject("/actuator/prometheus", String.class)).contains("lego_events_retried_total");
+    assertThat(rest.getForObject("http://localhost:" + managementPort + "/actuator/prometheus", String.class))
+        .contains("lego_events_retried_total");
   }
 
   private static void awaitUntil(BooleanSupplier condition, Duration timeout)

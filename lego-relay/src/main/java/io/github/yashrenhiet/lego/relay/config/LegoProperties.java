@@ -21,16 +21,21 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "lego")
 public record LegoProperties(
     @DefaultValue("") String instanceId,
+    @NotNull @DefaultValue("30s") Duration shutdownTimeout,
     @Valid @NotNull @DefaultValue Polling polling,
     @Valid @NotNull @DefaultValue Leasing leasing,
     @Valid @NotNull @DefaultValue Retry retry,
     @Valid @NotNull @DefaultValue Map<String, Destination> destinations) {
 
-  /** How the relay reads the outbox. */
+  /**
+   * How the relay reads the outbox. {@code maxConsecutiveBatches} caps how long one partition can
+   * hog a worker before yielding to other partitions.
+   */
   public record Polling(
       @Min(1) @DefaultValue("100") int batchSize,
       @Min(1) @DefaultValue("8") int workerThreads,
-      @NotNull @DefaultValue("200ms") Duration interval) {}
+      @NotNull @DefaultValue("200ms") Duration interval,
+      @Min(1) @DefaultValue("10") int maxConsecutiveBatches) {}
 
   /** Partition ownership. {@code leaseDuration} is how long a crashed instance keeps its work. */
   public record Leasing(
@@ -67,5 +72,6 @@ public record LegoProperties(
       URI url,
       @DefaultValue("POST") String method,
       @DefaultValue Map<String, String> headers,
-      @NotNull @DefaultValue("5s") Duration timeout) {}
+      @NotNull @DefaultValue("5s") Duration timeout,
+      @NotNull @DefaultValue("5s") Duration connectTimeout) {}
 }

@@ -17,7 +17,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -42,12 +41,11 @@ public class RelayConfiguration {
 
   @Bean
   SinkRegistry sinkRegistry(LegoProperties props, ObjectProvider<KafkaTemplate<String, String>> kafka) {
-    HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     Map<String, Sink> sinks = new HashMap<>();
     props.destinations().forEach((name, destination) ->
         sinks.put(name, switch (destination.type()) {
           case KAFKA -> new KafkaSink(kafka.getObject(), destination.kafka());
-          case HTTP -> new HttpSink(httpClient, destination.http());
+          case HTTP -> new HttpSink(httpClient(destination.http()), destination.http());
           case LOG -> new LogSink(name);
         }));
     return new SinkRegistry(sinks);
@@ -76,7 +74,13 @@ public class RelayConfiguration {
         processor,
         props.polling().interval(),
         props.leasing().renewInterval(),
-        props.polling().workerThreads());
+        props.polling().workerThreads(),
+        props.polling().maxConsecutiveBatches(),
+        props.shutdownTimeout());
+  }
+
+  private static HttpClient httpClient(LegoProperties.Http config) {
+    return HttpClient.newBuilder().connectTimeout(config.connectTimeout()).build();
   }
 
   private static String instanceId(LegoProperties props) {

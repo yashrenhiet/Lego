@@ -9,17 +9,15 @@ import io.github.yashrenhiet.lego.relay.sink.KafkaSink;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /** Checks that a Kafka destination wires up (no broker needed until the first send). */
 @SpringBootTest
-@DirtiesContext
 class KafkaWiringTest {
 
-  @MockBean RelayEngine relayEngine; // don't start polling
+  @MockitoBean RelayEngine relayEngine; // don't start polling
 
   @Autowired SinkRegistry sinks;
 

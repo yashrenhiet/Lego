@@ -14,6 +14,13 @@ spring:
       properties:
         enable.idempotence: true
         max.in.flight.requests.per.connection: 5
+        # Bound every blocking phase so a dead broker can't pin a worker thread.
+        # send() blocks up to max.block.ms BEFORE the future exists; keep
+        # max.block.ms + delivery.timeout.ms <= each Kafka destination's send-timeout.
+        max.block.ms: 3000
+        request.timeout.ms: 3000
+        delivery.timeout.ms: 7000
+        linger.ms: 0
   threads:
     virtual:
       enabled: false
@@ -23,6 +30,9 @@ server:
   shutdown: graceful
 
 management:
+  # Actuator on a separate port so it can be firewalled off from app traffic.
+  server:
+    port: ${MANAGEMENT_PORT:8081}
   endpoints:
     web:
       exposure:
@@ -33,10 +43,16 @@ management:
         enabled: true
 
 lego:
+  shutdown-timeout: 30s
+  admin:
+    # GET /admin/** (stats, dead-letter listing) is always on.
+    # Replay/discard change data, so they are off unless explicitly enabled.
+    write-enabled: false
   polling:
     batch-size: 100
     worker-threads: 8
     interval: 200ms
+    max-consecutive-batches: 10
   leasing:
     lease-duration: 30s
     renew-interval: 5s

@@ -26,14 +26,14 @@ import org.springframework.context.SmartLifecycle;
 public class RelayEngine implements SmartLifecycle {
 
   private static final Logger log = LoggerFactory.getLogger(RelayEngine.class);
-  /** Batches a worker may run back-to-back for one partition before yielding to others. */
-  private static final int MAX_CONSECUTIVE_BATCHES = 10;
 
   private final PartitionLeaseManager leases;
   private final PartitionProcessor processor;
   private final Duration pollInterval;
   private final Duration renewInterval;
   private final int workerThreads;
+  private final int maxConsecutiveBatches;
+  private final Duration shutdownTimeout;
   private final Set<Integer> inFlight = ConcurrentHashMap.newKeySet();
 
   private volatile boolean running;
@@ -45,12 +45,16 @@ public class RelayEngine implements SmartLifecycle {
       PartitionProcessor processor,
       Duration pollInterval,
       Duration renewInterval,
-      int workerThreads) {
+      int workerThreads,
+      int maxConsecutiveBatches,
+      Duration shutdownTimeout) {
     this.leases = leases;
     this.processor = processor;
     this.pollInterval = pollInterval;
     this.renewInterval = renewInterval;
     this.workerThreads = workerThreads;
+    this.maxConsecutiveBatches = maxConsecutiveBatches;
+    this.shutdownTimeout = shutdownTimeout;
   }
 
   @Override
@@ -75,7 +79,7 @@ public class RelayEngine implements SmartLifecycle {
     scheduler.shutdownNow();
     workers.shutdown();
     try {
-      if (!workers.awaitTermination(30, TimeUnit.SECONDS)) {
+      if (!workers.awaitTermination(shutdownTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
         workers.shutdownNow();
       }
     } catch (InterruptedException e) {
@@ -95,6 +99,7 @@ public class RelayEngine implements SmartLifecycle {
     try {
       leases.tick();
     } catch (RuntimeException e) {
+      // Deliberately broad: an exception escaping a scheduled task silently cancels it forever.
       log.error("Lease maintenance failed; will retry", e);
     }
   }
@@ -107,18 +112,20 @@ public class RelayEngine implements SmartLifecycle {
         }
       }
     } catch (RuntimeException e) {
+      // Deliberately broad: see safeTick().
       log.error("Dispatch failed; will retry", e);
     }
   }
 
   private void drain(Lease lease) {
     try {
-      for (int i = 0; i < MAX_CONSECUTIVE_BATCHES && running && leases.stillHolds(lease); i++) {
+      for (int i = 0; i < maxConsecutiveBatches && running && leases.stillHolds(lease); i++) {
         if (!processor.processBatch(lease)) {
           return;
         }
       }
     } catch (RuntimeException e) {
+      // Deliberately broad: one bad partition must not take the worker thread down.
       log.error("Processing partition {} failed; will retry", lease.partition(), e);
     } finally {
       inFlight.remove(lease.partition());
