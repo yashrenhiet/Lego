@@ -51,20 +51,22 @@ public class PartitionProcessor {
   public boolean processBatch(Lease lease) {
     List<OutboxRecord> batch = outbox.findDeliverable(lease.partition(), batchSize);
     List<Long> delivered = new ArrayList<>(batch.size());
-    Set<String> blockedKeys = new HashSet<>(); // keys with an event rescheduled in this batch
+    // (destination, key) pairs with an event rescheduled in this batch; later events must wait.
+    Set<OrderingKey> blockedKeys = new HashSet<>();
 
     for (OutboxRecord event : batch) {
       if (!leases.stillHolds(lease)) {
         log.warn("Lost lease on partition {} mid-batch; stopping", lease.partition());
         break;
       }
-      if (blockedKeys.contains(event.key())) {
+      OrderingKey orderingKey = new OrderingKey(event.destination(), event.key());
+      if (blockedKeys.contains(orderingKey)) {
         continue; // an earlier event of this key is waiting to retry
       }
       Outcome outcome = deliver(lease, event);
       switch (outcome) {
         case DELIVERED -> delivered.add(event.id());
-        case RETRY_SCHEDULED -> blockedKeys.add(event.key());
+        case RETRY_SCHEDULED -> blockedKeys.add(orderingKey);
         case DEAD_LETTERED -> { } // later events of the key may proceed
         case LEASE_LOST -> {
           flush(lease, delivered);
@@ -85,6 +87,7 @@ public class PartitionProcessor {
     } catch (DeliveryException e) {
       return recordFailure(lease, event, e, e.isPermanent());
     } catch (RuntimeException e) {
+      // Deliberately broad: a sink bug must become a retry, never kill the worker thread.
       return recordFailure(lease, event, e, false);
     }
   }
@@ -133,6 +136,8 @@ public class PartitionProcessor {
     String message = error.getClass().getSimpleName() + ": " + error.getMessage();
     return root == error ? message : message + " (root cause: " + root + ")";
   }
+
+  private record OrderingKey(String destination, String key) {}
 
   private enum Outcome {
     DELIVERED,

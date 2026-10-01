@@ -92,6 +92,22 @@ class PartitionProcessorTest {
   }
 
   @Test
+  void failureOnOneDestinationDoesNotBlockSameKeyOnAnother() {
+    RecordingSink webhook = new RecordingSink();
+    fixture.write("orders", "customer-1", "o1");
+    fixture.write("webhook", "customer-1", "w1");
+    fixture.write("orders", "customer-1", "o2");
+    fixture.write("webhook", "customer-1", "w2");
+    sink.failTimes("o1", 1, false);
+
+    processWith(Map.of("orders", sink, "webhook", webhook), "customer-1");
+    processWith(Map.of("orders", sink, "webhook", webhook), "customer-1");
+
+    assertThat(webhook.payloads).containsExactly("w1", "w2");
+    assertThat(sink.payloads).isEmpty(); // o2 still waits behind o1
+  }
+
+  @Test
   void unknownDestinationIsDeadLettered() {
     fixture.write("nowhere", "k", "p");
 
@@ -119,6 +135,11 @@ class PartitionProcessorTest {
 
   private void process(int maxAttempts, String key) {
     fixture.processor(leases, Map.of("orders", sink), maxAttempts)
+        .processBatch(leases.current(fixture.partitionOf(key)).orElseThrow());
+  }
+
+  private void processWith(Map<String, Sink> sinks, String key) {
+    fixture.processor(leases, sinks, 3)
         .processBatch(leases.current(fixture.partitionOf(key)).orElseThrow());
   }
 

@@ -49,9 +49,9 @@ public class OutboxRepository {
    * The next deliverable events of a partition, oldest first.
    *
    * <p>An event is deliverable when it is due and no <em>earlier</em> pending event with the same
-   * key is still waiting (for a retry or a scheduled time). This is what gives strict per-key
-   * ordering across polls: a failing event blocks the rest of its key until it succeeds or is
-   * dead-lettered.
+   * destination and key is still waiting (for a retry or a scheduled time). This is what gives
+   * strict per-key ordering across polls: a failing event blocks the rest of its key, for that
+   * destination only, until it succeeds or is dead-lettered.
    */
   public List<OutboxRecord> findDeliverable(int partition, int limit) {
     return jdbc.sql(
@@ -64,7 +64,8 @@ public class OutboxRepository {
                AND o.next_attempt_at <= now()
                AND NOT EXISTS (
                    SELECT 1 FROM lego_outbox earlier
-                    WHERE earlier.event_key = o.event_key
+                    WHERE earlier.destination = o.destination
+                      AND earlier.event_key = o.event_key
                       AND earlier.status = 'PENDING'
                       AND earlier.id < o.id
                       AND earlier.next_attempt_at > now())

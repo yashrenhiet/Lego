@@ -2,7 +2,7 @@
 --
 -- Events are spread over a FIXED number of partitions (64). All events with the same
 -- event_key land in the same partition, and each partition is processed by exactly one
--- relay instance at a time, which gives strict per-key ordering.
+-- relay instance at a time, which gives strict ordering per (destination, event_key).
 --
 -- The partition is computed by the database itself, so producers in any language can
 -- write events with a plain INSERT.
@@ -36,8 +36,8 @@ CREATE TABLE lego_outbox
 
 -- Hot path: "next pending events of partition N, in insertion order".
 CREATE INDEX lego_outbox_poll_idx ON lego_outbox (partition_no, id) WHERE status = 'PENDING';
--- Ordering guard: "is there an earlier pending event of this key still waiting to retry?".
-CREATE INDEX lego_outbox_key_idx ON lego_outbox (event_key, id) WHERE status = 'PENDING';
+-- Ordering guard: "is there an earlier pending event of this destination + key still waiting?".
+CREATE INDEX lego_outbox_key_idx ON lego_outbox (destination, event_key, id) WHERE status = 'PENDING';
 -- Admin: browse dead letters per destination.
 CREATE INDEX lego_outbox_dead_idx ON lego_outbox (destination, id) WHERE status = 'DEAD';
 
