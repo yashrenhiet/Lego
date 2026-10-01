@@ -21,8 +21,10 @@ import java.util.Map;
  *   <li>any other status (400, 401, 404, 422...): permanent, dead-lettered immediately
  * </ul>
  *
- * Headers sent: the configured static headers, the event's own headers, {@code Lego-Event-Id}
- * and {@code Lego-Event-Key}. Receivers should de-duplicate on {@code Lego-Event-Id}.
+ * Headers sent: the configured static headers, then the event's own headers, then {@code
+ * Lego-Event-Id} and {@code Lego-Event-Key} last so they can't be overridden. Receivers should
+ * de-duplicate on {@code Lego-Event-Id}. Invalid or JDK-restricted header names (e.g. {@code
+ * Host}) can never succeed, so they dead-letter the event immediately.
  */
 public class HttpSink implements Sink {
 
@@ -45,19 +47,10 @@ public class HttpSink implements Sink {
 
   @Override
   public void send(OutboxRecord event) throws DeliveryException {
-    HttpRequest.Builder request =
-        HttpRequest.newBuilder(url)
-            .timeout(timeout)
-            .method(method, HttpRequest.BodyPublishers.ofString(event.payload()))
-            .header("Content-Type", "application/json")
-            .header("Lego-Event-Id", event.eventId().toString())
-            .header("Lego-Event-Key", event.key());
-    headers.forEach(request::setHeader);
-    event.headers().forEach(request::setHeader);
-
+    HttpRequest request = buildRequest(event);
     HttpResponse<String> response;
     try {
-      response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+      response = client.send(request, HttpResponse.BodyHandlers.ofString());
     } catch (IOException e) {
       throw DeliveryException.retryable("HTTP call to " + url + " failed: " + e, e);
     } catch (InterruptedException e) {
@@ -65,6 +58,24 @@ public class HttpSink implements Sink {
       throw DeliveryException.retryable("Interrupted while calling " + url, e);
     }
     classify(response.statusCode(), response.body());
+  }
+
+  HttpRequest buildRequest(OutboxRecord event) throws DeliveryException {
+    try {
+      HttpRequest.Builder request =
+          HttpRequest.newBuilder(url)
+              .timeout(timeout)
+              .method(method, HttpRequest.BodyPublishers.ofString(event.payload()))
+              .header("Content-Type", "application/json");
+      headers.forEach(request::setHeader);
+      event.headers().forEach(request::setHeader);
+      return request
+          .setHeader("Lego-Event-Id", event.eventId().toString())
+          .setHeader("Lego-Event-Key", event.key())
+          .build();
+    } catch (IllegalArgumentException e) {
+      throw DeliveryException.permanent("Invalid HTTP request: " + e.getMessage(), e);
+    }
   }
 
   static void classify(int status, String body) throws DeliveryException {
