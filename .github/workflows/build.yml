@@ -18,9 +18,10 @@ jobs:
       # Tests use an embedded PostgreSQL binary, so no Docker service is needed.
       - run: mvn -B verify
 
-  docker:
+  quickstart:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      # Keeps the Dockerfile used by the README quick start from rotting.
-      - run: docker build -t lego-relay:ci .
+      # Runs the README quick start for real: compose up, SQL insert, consume from Kafka.
+      - run: ./scripts/smoke-test.sh
