@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: lego-relay
+  datasource:
+    url: ${LEGO_DB_URL:jdbc:postgresql://localhost:5432/lego}
+    username: ${LEGO_DB_USER:lego}
+    password: ${LEGO_DB_PASSWORD:lego}
+  flyway:
+    locations: classpath:db/lego
+  kafka:
+    bootstrap-servers: ${LEGO_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+  threads:
+    virtual:
+      enabled: false
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+lego:
+  polling:
+    batch-size: 100
+    worker-threads: 8
+    interval: 200ms
+  leasing:
+    lease-duration: 30s
+    renew-interval: 5s
+  retry:
+    max-attempts: 10
+    initial-backoff: 1s
+    max-backoff: 10m
+    multiplier: 2.0
+  # Declare where events go. The outbox row's `destination` column must match a key here.
+  destinations:
+    demo-log:
+      type: LOG
+    # orders:
+    #   type: KAFKA
+    #   kafka:
+    #     topic: orders.v1
+    # billing-webhook:
+    #   type: HTTP
+    #   http:
+    #     url: https://billing.example.com/hooks/orders
+    #     timeout: 5s
+    #     headers:
+    #       Authorization: Bearer ${BILLING_TOKEN}
